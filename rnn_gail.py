@@ -1,7 +1,9 @@
 import argparse
 import sys
+import os
 import math
 import random
+import pickle
 from collections import namedtuple
 from itertools import count, product
 
@@ -68,6 +70,8 @@ parser.add_argument('--entropy-coeff', type=float, default=0.0, metavar='N',
                     help='coefficient for entropy cost')
 parser.add_argument('--clip-epsilon', type=float, default=0.2, metavar='N',
                     help='Clipping for PPO grad')
+parser.add_argument('--checkpoint', type=str, required=True,
+                    help='path to checkpoint')
 
 args = parser.parse_args()
 
@@ -368,6 +372,11 @@ episode_lengths = []
 optim_epochs = 5
 optim_percentage = 0.05
 
+if not os.path.exists(args.checkpoint):
+    os.makedirs(args.checkpoint)
+
+stats = {'true_reward': [], 'ep_length':[]}
+
 expert = Expert(args.expert_path, num_inputs)
 print 'Loading expert trajectories ...'
 expert.push()
@@ -401,8 +410,8 @@ for i_episode in count(1):
         for t in range(args.max_ep_length): # Don't infinite loop while learning
             ct = c[t,:]
             action = select_action(np.concatenate((s.state, ct)))
-            reward = -float(reward_net(torch.cat((Variable(torch.from_numpy(s.state).unsqueeze(0)).type(dtype), action, Variable(torch.from_numpy(ct).unsqueeze(0)).type(dtype)), 1)).data.cpu().numpy()[0,0])
             action = epsilon_greedy_linear_decay(action.data.cpu().numpy(), args.num_episodes*0.5, i_episode, low=0.05, high=0.9)
+            reward = -float(reward_net(torch.cat((Variable(torch.from_numpy(s.state).unsqueeze(0)).type(dtype), Variable(torch.from_numpy(oned_to_onehot(action).unsqueeze(0))).type(dtype), Variable(torch.from_numpy(ct).unsqueeze(0)).type(dtype)), 1)).data.cpu().numpy()[0,0])
             next_s = T(s, Action(action), R.t)
             true_reward = R(s, Action(action), ct)
             reward_sum += reward
@@ -442,6 +451,17 @@ for i_episode in count(1):
     if i_episode % args.log_interval == 0:
         print('Episode {}\tLast reward {}\tAverage reward {}\tLast true reward {}\tAverage true reward {:.2f}'.format(
             i_episode, reward_sum, reward_batch, true_reward_sum, true_reward_batch))
+
+    stats['true_reward'].append(true_reward_batch)
+
+    results_path = os.path.join(args.checkpoint, 'results.pkl')
+    with open(results_path,'wb') as results_f:
+        pickle.dump((stats), results_f, protocol=2)
+
+    if i_episode % args.save_interval == 0:
+        f_w = open(os.path.join(args.checkpoint, '_ep_' + str(i_episode) + '.pth', 'wb'))
+        checkpoint = {'policy': policy_net}
+        torch.save(checkpoint, f_w)
 
     if i_episode == args.num_episodes:
         break

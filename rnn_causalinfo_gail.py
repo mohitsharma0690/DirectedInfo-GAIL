@@ -1,5 +1,7 @@
 import argparse
 import sys
+import os
+import pickle
 import math
 import random
 from collections import namedtuple
@@ -392,6 +394,11 @@ episode_lengths = []
 optim_epochs = 5
 optim_percentage = 0.05
 
+if not os.path.exists(args.checkpoint):
+    os.makedirs(args.checkpoint)
+
+stats = {'true_reward': [], 'ep_length':[]}
+
 expert = Expert(args.expert_path, num_inputs)
 print 'Loading expert trajectories ...'
 expert.push()
@@ -469,6 +476,17 @@ for i_episode in count(1):
     if i_episode % args.log_interval == 0:
         print('Episode {}\tLast reward {}\tAverage reward {}\tLast true reward {}\tAverage true reward {:.2f}'.format(
             i_episode, reward_sum, reward_batch, true_reward_sum, true_reward_batch))
+
+    stats['true_reward'].append(true_reward_batch)
+
+    results_path = os.path.join(args.checkpoint, 'results.pkl')
+    with open(results_path,'wb') as results_f:
+        pickle.dump((stats), results_f, protocol=2)
+
+    if i_episode % args.save_interval == 0:
+        f_w = open(os.path.join(args.checkpoint, '_ep_' + str(i_episode) + '.pth', 'wb'))
+        checkpoint = {'policy': policy_net}
+        torch.save(checkpoint, f_w)
 
     if i_episode == args.num_episodes:
         break
