@@ -391,10 +391,10 @@ for i_episode in count(1):
     num_episodes = 0
     while num_steps < args.batch_size:
         c = expert.sample_c() # read c sequence from expert trajectories
-        #if np.argmax(c[0,:]) == 1: # left half
-        #    set_diff = list(set(product(tuple(range(0, (width/2)-3)), tuple(range(1, height)))) - set(obstacles))
-        #elif np.argmax(c[0,:]) == 3: # right half
-        #    set_diff = list(set(product(tuple(range(width/2, width-2)), tuple(range(2, height)))) - set(obstacles))
+        if np.argmax(c[0,:]) == 1: # left half
+            set_diff = list(set(product(tuple(range(0, (width/2)-3)), tuple(range(1, height)))) - set(obstacles))
+        elif np.argmax(c[0,:]) == 3: # right half
+            set_diff = list(set(product(tuple(range(width/2, width-2)), tuple(range(2, height)))) - set(obstacles))
 
         start_loc = sample_start(set_diff)
         s = State(start_loc, obstacles)
@@ -411,7 +411,7 @@ for i_episode in count(1):
             ct = c[t,:]
             action = select_action(np.concatenate((s.state, ct)))
             action = epsilon_greedy_linear_decay(action.data.cpu().numpy(), args.num_episodes*0.5, i_episode, low=0.05, high=0.9)
-            reward = -float(reward_net(torch.cat((Variable(torch.from_numpy(s.state).unsqueeze(0)).type(dtype), Variable(torch.from_numpy(oned_to_onehot(action).unsqueeze(0))).type(dtype), Variable(torch.from_numpy(ct).unsqueeze(0)).type(dtype)), 1)).data.cpu().numpy()[0,0])
+            reward = -float(reward_net(torch.cat((Variable(torch.from_numpy(s.state).unsqueeze(0)).type(dtype), Variable(torch.from_numpy(oned_to_onehot(action)).unsqueeze(0)).type(dtype), Variable(torch.from_numpy(ct).unsqueeze(0)).type(dtype)), 1)).data.cpu().numpy()[0,0])
             next_s = T(s, Action(action), R.t)
             true_reward = R(s, Action(action), ct)
             reward_sum += reward
@@ -459,7 +459,7 @@ for i_episode in count(1):
         pickle.dump((stats), results_f, protocol=2)
 
     if i_episode % args.save_interval == 0:
-        f_w = open(os.path.join(args.checkpoint, '_ep_' + str(i_episode) + '.pth', 'wb'))
+        f_w = open(os.path.join(args.checkpoint, 'ep_' + str(i_episode) + '.pth'), 'wb')
         checkpoint = {'policy': policy_net}
         torch.save(checkpoint, f_w)
 
