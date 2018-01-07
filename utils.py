@@ -44,3 +44,19 @@ def get_flat_grad_from(net, grad_grad=False):
 
     flat_grad = torch.cat(grads)
     return flat_grad
+
+def clip_grads(model, clip_val=5.0):
+    #average_abs_norm = 0
+    #max_abs_norm = 0
+    #count = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            #count += 1.0
+            #average_abs_norm += p.grad.data.abs().mean()
+            #if p.grad.data.abs().max() > max_abs_norm:
+            #    max_abs_norm = p.grad.data.abs().max()
+            p.grad.data = p.grad.data.clamp(-clip_val, clip_val)
+
+    #average_abs_norm /= count
+
+    #return average_abs_norm, max_abs_norm

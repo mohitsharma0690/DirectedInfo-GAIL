@@ -116,11 +116,82 @@ def gen_sq_rec(grid_width, grid_height, path='SR_expert_trajectories'):
                 elif delta == 0:
                     delta = 2
 
+
+def gen_sq_rec_2(grid_width, grid_height, path='SR2_expert_trajectories'):
+    ''' Generates squares if starting in quadrants 1 and 4, and rectangles if starting in quadransts 2 and 3 '''
+    N = 200
+
+    obstacles = create_obstacles(grid_width, grid_height)
+
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    T = TransitionFunction(grid_width, grid_height, obstacle_movement)
+
+    for i in range(N):
+        filename = os.path.join(path, str(i) + '.txt')
+        f = open(filename, 'w')
+        half = random.choice(range(0,2))
+        if half == 0: # left half
+            set_diff = list(set(product(tuple(range(0, (grid_width/2)-3)), tuple(range(1, grid_height)))) - set(obstacles))
+            start_loc = sample_start(set_diff)
+        elif half == 1: # right half
+            set_diff = list(set(product(tuple(range(grid_width/2, grid_width-2)), tuple(range(2, grid_height)))) - set(obstacles))
+            start_loc = sample_start(set_diff)
+            
+        state = State(start_loc, obstacles)
+
+        if start_loc[0] >= grid_width/2: # quadrants 1 and 4
+            # generate 2x2 square clockwise
+            t = 2
+            n = 4
+            delta = 3
+            cs = [0,0,1,1]
+
+            for j in range(n):
+                for k in range(t):
+                    action = Action(delta)
+                    f.write(' '.join([str(e) for e in state.state]) + '\n') # write state
+                    f.write(' '.join([str(e) for e in oned_to_onehot(action.delta, 4)]) + '\n') # write action
+                    f.write(' '.join([str(e) for e in oned_to_onehot(cs[j], 2)]) + '\n') # write c[t]s
+                    state = T(state, action, j*2 + k)
+                
+                if delta == 3:
+                    delta = 1
+                elif delta == 1:
+                    delta = 2
+                elif delta == 2:
+                    delta = 0
+            
+        else: # quadrants 2 and 3
+            # generate 3x1 rectangle clockwise
+            t = [1,3,1,3]
+            delta = 3
+            cs = [0,0,1,1]
+
+            for j in range(len(t)):
+                for k in range(t[j]):
+                    action = Action(delta)
+                    f.write(' '.join([str(e) for e in state.state]) + '\n') # write state
+                    f.write(' '.join([str(e) for e in oned_to_onehot(action.delta, 4)]) + '\n') # write action
+                    f.write(' '.join([str(e) for e in oned_to_onehot(cs[j], 2)]) + '\n') # write c[t]s
+                    state = T(state, action, sum(t[0:j]) + k)
+
+                if delta == 3:
+                    delta = 1
+                elif delta == 1:
+                    delta = 2
+                elif delta == 2:
+                    delta = 0
+
+
 def main():
     if int(sys.argv[1]) == 0:
         gen_L(12,12)
     elif int(sys.argv[1]) == 1:
         gen_sq_rec(12,12)
+    elif int(sys.argv[1]) == 2:
+        gen_sq_rec_2(12,12)
     else:
         print 'Undefined arguement!'
 

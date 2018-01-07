@@ -132,3 +132,31 @@ class RewardFunction():
     def reset(self, goal_1_func=None, goal_2_func=None):
         self.terminal = False
         self.t = 0
+
+
+class RewardFunction_SR2():
+    def __init__(self, penalty, reward, grid_width=12):
+        # penalty - number (float), reward - number (float)
+        self.terminal = False
+        self.penalty = penalty
+        self.reward = reward
+        self.grid_width = grid_width
+        self.action_deltas = [[3,3,1,1,2,2,0,0], [3,1,1,1,2,0,0,0]]
+        self.t = 0 # timer
+        
+    def __call__(self, state, action, c):
+        self.t += 1
+        if state.state[0] >= self.grid_width/2:
+            if action.delta != self.action_deltas[0][self.t-1]:
+                return self.penalty
+            else:
+                return self.reward
+        else:
+            if action.delta != self.action_deltas[1][self.t-1]:
+                return self.penalty
+            else:
+                return self.reward
+
+    def reset(self, goal_1_func=None, goal_2_func=None):
+        self.terminal = False
+        self.t = 0

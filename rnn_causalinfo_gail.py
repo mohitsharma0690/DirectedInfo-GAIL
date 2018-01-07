@@ -19,16 +19,17 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.transforms as T
 from torch.autograd import Variable
-from torch.nn.utils.rnn import pack_padded_sequence
+#from torch.nn.utils.rnn import pack_padded_sequence
 
 
 from models import Policy, Value
-from grid_world import State, Action, TransitionFunction, RewardFunction
+from grid_world import State, Action, TransitionFunction, RewardFunction, RewardFunction_SR2
 from grid_world import create_obstacles, obstacle_movement, sample_start
 from load_expert_traj import Expert
-from gru_discrete import GRU
+from gru_discrete_separate import GRU
 from replay_memory import Memory, Memory_Ep
 from running_state import ZFilter
+from utils import clip_grads
 
 # from utils import *
 
@@ -84,23 +85,27 @@ start_loc = sample_start(set_diff)
 
 s = State(start_loc, obstacles)
 T = TransitionFunction(width, height, obstacle_movement)
-R = RewardFunction(-1.0,1.0)
+
+if args.expert_path == 'SR2_expert_trajectories/':
+    R = RewardFunction_SR2(-1.0,1.0,width)
+else:
+    R = RewardFunction(-1.0,1.0)
 
 num_inputs = s.state.shape[0]
 num_actions = 4
-num_c = 4
+num_c = 2
 
 #env.seed(args.seed)
 torch.manual_seed(args.seed)
 
-policy_net = GRU(num_inputs+num_c, num_actions, hidden_size=128, dtype=dtype).type(dtype)
-old_policy_net = GRU(num_inputs+num_c, num_actions, hidden_size=128, dtype=dtype).type(dtype)
-value_net = Value(num_inputs+num_c, hidden_size=128).type(dtype)
-reward_net = GRU(num_inputs+num_actions+num_c, 1, hidden_size=128, policy_flag=0, activation_flag=2, dtype=dtype).type(dtype)
-posterior_net = GRU(num_inputs+num_actions+num_c, num_c, hidden_size=128, dtype=dtype).type(dtype)
+policy_net = GRU(num_inputs, 0, num_c, num_actions, hidden_size=128, dtype=dtype).type(dtype)
+old_policy_net = GRU(num_inputs, 0, num_c, num_actions, hidden_size=128, dtype=dtype).type(dtype)
+#value_net = Value(num_inputs+num_c, hidden_size=64).type(dtype)
+reward_net = GRU(num_inputs, num_actions, num_c, 1, hidden_size=128, policy_flag=0, activation_flag=2, dtype=dtype).type(dtype)
+posterior_net = GRU(num_inputs, num_actions, num_c, num_c, hidden_size=128, dtype=dtype).type(dtype)
 
 opt_policy = optim.Adam(policy_net.parameters(), lr=0.0003)
-opt_value = optim.Adam(value_net.parameters(), lr=0.0003)
+#opt_value = optim.Adam(value_net.parameters(), lr=0.0003)
 opt_reward = optim.Adam(reward_net.parameters(), lr=0.0003)
 opt_posterior = optim.Adam(posterior_net.parameters(), lr=0.0003)
 
@@ -191,7 +196,7 @@ def update_params(gen_batch_list, expert_batch_list, i_episode, optim_epochs, op
     criterion = nn.BCELoss()
     criterion_posterior = nn.NLLLoss()
 
-    opt_value.lr = args.learning_rate*max(1.0 - float(i_episode)/args.num_episodes, 0)
+    #opt_value.lr = args.learning_rate*max(1.0 - float(i_episode)/args.num_episodes, 0)
     opt_policy.lr = args.learning_rate*max(1.0 - float(i_episode)/args.num_episodes, 0)
     clip_epsilon = args.clip_epsilon*max(1.0 - float(i_episode)/args.num_episodes, 0)
 
@@ -223,7 +228,7 @@ def update_params(gen_batch_list, expert_batch_list, i_episode, optim_epochs, op
         states_list.append(states)
         latent_c = torch.Tensor(batch.c).type(dtype)
         latent_c_list.append(latent_c)
-        values = value_net(Variable(torch.cat((states, latent_c),1)))
+        #values = value_net(Variable(torch.cat((states, latent_c),1)))
 
         returns = torch.Tensor(actions.size(0),1).type(dtype)
         deltas = torch.Tensor(actions.size(0),1).type(dtype)
@@ -238,7 +243,7 @@ def update_params(gen_batch_list, expert_batch_list, i_episode, optim_epochs, op
             #advantages[i] = deltas[i] + args.gamma * args.tau * prev_advantage * masks[i]
             advantages[i] = returns[i] #changed by me to see if value function is causing problems
             prev_return = returns[i, 0]
-            prev_value = values.data[i, 0]
+            #prev_value = values.data[i, 0]
             prev_advantage = advantages[i, 0]
 
         targets = Variable(returns)
@@ -293,7 +298,7 @@ def update_params(gen_batch_list, expert_batch_list, i_episode, optim_epochs, op
             old_policy_net.reset(cur_batch_size)
 
             # zero gradients
-            opt_value.zero_grad()
+            #opt_value.zero_grad()
             opt_policy.zero_grad()
             opt_reward.zero_grad()
             opt_posterior.zero_grad()
@@ -305,12 +310,14 @@ def update_params(gen_batch_list, expert_batch_list, i_episode, optim_epochs, op
             batch_targets_list = [targets_list[ep_i] for ep_i in perm[cur_id:cur_id+cur_batch_size]]
 
             # update value net
-            batch_state_var = Variable(torch.cat(batch_states_list,0))
-            batch_latent_c_var = Variable(torch.cat(batch_latent_c_list, 0))
-            value_var = value_net(torch.cat((batch_state_var, batch_latent_c_var),1))
-            targets_var = torch.cat(batch_targets_list,0)
-            value_loss = (value_var - targets_var).pow(2.).mean()
-            value_loss.backward()
+            #batch_state_var = Variable(torch.cat(batch_states_list,0))
+            #batch_latent_c_var = Variable(torch.cat(batch_latent_c_list, 0))
+            #value_var = value_net(torch.cat((batch_state_var, batch_latent_c_var),1))
+            #targets_var = torch.cat(batch_targets_list,0)
+            #value_loss = (value_var - targets_var).pow(2.).mean()
+            #value_loss.backward()
+
+            #opt_value.step()
            
             batch_expert_states_list = [expert_states_list[ep_i] for ep_i in exp_perm[cur_id_exp:cur_id_exp+cur_batch_size_exp]]
             batch_expert_latent_c_list = [expert_latent_c_list[ep_i] for ep_i in exp_perm[cur_id_exp:cur_id_exp+cur_batch_size_exp]]
@@ -349,6 +356,9 @@ def update_params(gen_batch_list, expert_batch_list, i_episode, optim_epochs, op
             loss = criterion(outputs, Variable(torch.ones(outputs.size())).type(dtype))
             loss.backward()
 
+            
+            #torch.nn.utils.clip_grad_norm(reward_net.parameters(), 5)
+            clip_grads(reward_net, 5.0)
             opt_reward.step()
 
             # update posterior net
@@ -365,6 +375,8 @@ def update_params(gen_batch_list, expert_batch_list, i_episode, optim_epochs, op
             loss = criterion_posterior(outputs, targets)
             loss.backward()
 
+            #torch.nn.utils.clip_grad_norm(posterior_net.parameters(), 5)
+            clip_grads(posterior_net, 1.0)
             opt_posterior.step()
 
             # update policy net
@@ -383,9 +395,9 @@ def update_params(gen_batch_list, expert_batch_list, i_episode, optim_epochs, op
             policy_surr = -torch.min(surr1, surr2).mean() # true mean depends only on actual number of timesteps in batch
             policy_surr.backward()
 
-            torch.nn.utils.clip_grad_norm(policy_net.parameters(), 40)
+            #torch.nn.utils.clip_grad_norm(policy_net.parameters(), 5)
+            clip_grads(policy_net, 1.0)
 
-            opt_value.step()
             opt_policy.step()
             cur_id += cur_batch_size
             cur_id_exp += cur_batch_size_exp
@@ -415,10 +427,11 @@ for i_episode in count(1):
     num_episodes = 0
     while num_steps < args.batch_size:
         c = expert.sample_c() # read c sequence from expert trajectories
-        if np.argmax(c[0,:]) == 1: # left half 
-            set_diff = list(set(product(tuple(range(0, (width/2)-3)), tuple(range(1, height)))) - set(obstacles))
-        elif np.argmax(c[0,:]) == 3: # right half
-            set_diff = list(set(product(tuple(range(width/2, width-2)), tuple(range(2, height)))) - set(obstacles))
+        if args.expert_path == 'SR_expert_trajectories/':
+            if np.argmax(c[0,:]) == 1: # left half 
+                set_diff = list(set(product(tuple(range(0, (width/2)-3)), tuple(range(1, height)))) - set(obstacles))
+            elif np.argmax(c[0,:]) == 3: # right half
+                set_diff = list(set(product(tuple(range(width/2, width-2)), tuple(range(2, height)))) - set(obstacles))
             
         start_loc = sample_start(set_diff)
         s = State(start_loc, obstacles)
@@ -435,7 +448,7 @@ for i_episode in count(1):
         for t in range(args.max_ep_length): # Don't infinite loop while learning
             ct = c[t,:]
             action = select_action(np.concatenate((s.state, ct)))
-            action = epsilon_greedy_linear_decay(action.data.cpu().numpy(), args.num_episodes*0.5, i_episode, low=0.05, high=0.9)
+            action = epsilon_greedy_linear_decay(action.data.cpu().numpy(), args.num_episodes*0.5, i_episode, low=0.05, high=0.3)
             reward = -float(reward_net(torch.cat((Variable(torch.from_numpy(s.state).unsqueeze(0)).type(dtype), Variable(torch.from_numpy(oned_to_onehot(action)).unsqueeze(0)).type(dtype), Variable(torch.from_numpy(ct).unsqueeze(0)).type(dtype)), 1)).data.cpu().numpy()[0,0])
             if t < args.max_ep_length-1:
                 reward += math.exp(np.sum(np.multiply(posterior_net(torch.cat((Variable(torch.from_numpy(s.state).unsqueeze(0)).type(dtype), Variable(torch.from_numpy(oned_to_onehot(action)).unsqueeze(0)).type(dtype), Variable(torch.from_numpy(ct).unsqueeze(0)).type(dtype)),1)).data.cpu().numpy()[0,:], c[t+1,:])))
@@ -487,7 +500,7 @@ for i_episode in count(1):
 
     if i_episode % args.save_interval == 0:
         f_w = open(os.path.join(args.checkpoint, 'ep_' + str(i_episode) + '.pth'), 'wb')
-        checkpoint = {'policy': policy_net}
+        checkpoint = {'policy': policy_net, 'posterior': posterior_net}
         torch.save(checkpoint, f_w)
 
     if i_episode == args.num_episodes:
