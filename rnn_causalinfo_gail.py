@@ -93,7 +93,10 @@ else:
 
 num_inputs = s.state.shape[0]
 num_actions = 4
-num_c = 2
+if args.expert_path == 'SR2_expert_trajectories/':
+    num_c = 2
+else:
+    num_c = 4
 
 #env.seed(args.seed)
 torch.manual_seed(args.seed)
