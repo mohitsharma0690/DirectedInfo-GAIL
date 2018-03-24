@@ -47,11 +47,11 @@ class VAE(nn.Module):
     def __init__(self):
         super(VAE, self).__init__()
 
-        self.fc1 = nn.Linear(9, 12)
-        self.fc21 = nn.Linear(12, 1)
-        self.fc22 = nn.Linear(12, 1)
-        self.fc3 = nn.Linear(9, 12)
-        self.fc4 = nn.Linear(12, 4)
+        self.fc1 = nn.Linear(10, 64)
+        self.fc21 = nn.Linear(64, 1)
+        self.fc22 = nn.Linear(64, 1)
+        self.fc3 = nn.Linear(10, 64)
+        self.fc4 = nn.Linear(64, 4)
 
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
@@ -79,8 +79,8 @@ class VAE(nn.Module):
 
     def forward(self, x_t0, x_t1, x_t2, x_t3, c):
         mu, logvar = self.encode(torch.cat((x_t0, x_t1, x_t2, x_t3), 1), c)
-        z = self.reparameterize(mu, logvar)
-        return self.decode(torch.cat((x_t0, x_t1, x_t2, x_t3), 1), z), mu, logvar
+        c[:,0] = self.reparameterize(mu, logvar)
+        return self.decode(torch.cat((x_t0, x_t1, x_t2, x_t3), 1), c), mu, logvar
 
 
 model = VAE()
@@ -105,41 +105,63 @@ def loss_function(recon_x, x, mu, logvar):
     #return MSE + KLD
 
 
-def train(epoch, expert):
+def train(epoch, expert, Transition):
     model.train()
     train_loss = 0
     for batch_idx in range(10): # 10 batches per epoch
         batch = expert.sample(args.batch_size)
         x_data = torch.Tensor(batch.state)
-        x = -1*torch.ones(x_data.size(0), x_data.size(1)+3, x_data.size(2))
-        x[:,3:,:] = x_data
-        #_, a = torch.Tensor(batch.action).max(2)
-        #a = a.float()
-        a = torch.Tensor(batch.action)
-        _, c = torch.Tensor(batch.c).max(2)
-        c = c.float()
-        x_t0 = Variable(x[:,:-3,:].clone().view(x.size(0)*(x.size(1)-3), x.size(2)))
-        x_t1 = Variable(x[:,1:-2,:].clone().view(x.size(0)*(x.size(1)-3), x.size(2)))
-        x_t2 = Variable(x[:,2:-1,:].clone().view(x.size(0)*(x.size(1)-3), x.size(2)))
-        x_t3 = Variable(x[:,3:,:].clone().view(x.size(0)*(x.size(1)-3), x.size(2)))
+        N = x_data.size(1)
+        x = -1*torch.ones(x_data.size(0), 4, x_data.size(2))
+        x[:,3,:] = x_data[:,0,:]
 
+        a = Variable(torch.Tensor(batch.action))
 
-        a_t0 = Variable(a[:,:,:].clone().view(a.size(0)*a.size(1), a.size(2)))
-        c_t0 = Variable(c[:,:].clone().view(c.size(0)*c.size(1), 1))
+        _, c2 = torch.Tensor(batch.c).max(2)
+        c2 = c2.float()[:,0].unsqueeze(1)
+        c1 = -1*torch.ones(c2.size())
+        c = torch.cat((c1,c2),1)
+
+        #c_t0 = Variable(c[:,0].clone().view(c.size(0), 1))
+
         if args.cuda:
-            x_t0 = x_t0.cuda()
-            x_t1 = x_t1.cuda()
-            x_t2 = x_t2.cuda()
-            x_t3 = x_t3.cuda()
-            #x_t4 = x_t4.cuda()
-            a_t0 = a_t0.cuda()
-            c_t0 = c_t0.cuda()
+            a = a.cuda()
+            #c_t0 = c_t0.cuda()
 
         optimizer.zero_grad()
-        recon_batch, mu, logvar = model(x_t0, x_t1, x_t2, x_t3, c_t0)
-        loss = loss_function(recon_batch, a_t0, mu, logvar)
-        loss.backward()
-        train_loss += loss.data[0]
+        for t in range(N):
+            x_t0 = Variable(x[:,0,:].clone().view(x.size(0), x.size(2)))
+            x_t1 = Variable(x[:,1,:].clone().view(x.size(0), x.size(2)))
+            x_t2 = Variable(x[:,2,:].clone().view(x.size(0), x.size(2)))
+            x_t3 = Variable(x[:,3,:].clone().view(x.size(0), x.size(2)))
+            c_t0 = Variable(c)
+
+            if args.cuda:
+                x_t0 = x_t0.cuda()
+                x_t1 = x_t1.cuda()
+                x_t2 = x_t2.cuda()
+                x_t3 = x_t3.cuda()
+                c_t0 = c_t0.cuda()
+
+
+            recon_batch, mu, logvar = model(x_t0, x_t1, x_t2, x_t3, c_t0)
+            loss = loss_function(recon_batch, a[:,t,:], mu, logvar)
+            loss.backward()
+            train_loss += loss.data[0]
+
+            pred_actions = recon_batch.data.cpu().numpy()
+
+            x[:,:3,:] = x[:,1:,:]
+            # get next state and update x
+            for b_id in range(pred_actions.shape[0]):
+                action = Action(np.argmax(pred_actions[b_id,:]))
+                state = State(x[b_id,3,:].cpu().numpy(), obstacles)
+                next_state = Transition(state, action, 0)
+                x[b_id,3,:] = torch.Tensor(next_state.state)
+
+            # update c
+            c[:,0] = model.reparameterize(mu, logvar).data.cpu()
+
         optimizer.step()
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
@@ -155,7 +177,7 @@ def test(Transition):
     model.eval()
     #test_loss = 0
 
-    for _ in range(5):
+    for _ in range(20):
         c = expert.sample_c()
         N = c.shape[0]
         c = np.argmax(c[0,:])
@@ -177,9 +199,9 @@ def test(Transition):
         start_loc = sample_start(set_diff)
         s = State(start_loc, obstacles)
         R.reset()
-        c = torch.from_numpy(np.array([c])).unsqueeze(0).float()
+        c = torch.from_numpy(np.array([-1.0,c])).unsqueeze(0).float()
 
-        print 'c is ', c
+        print 'c is ', c[0,1]
 
         c = Variable(c)
 
@@ -204,7 +226,7 @@ def test(Transition):
             x_t3 = Variable(x[:,3,:])
 
             mu, logvar = model.encode(torch.cat((x_t0, x_t1, x_t2, x_t3), 1), c)
-            c = model.reparameterize(mu, logvar)
+            c[:,0] = model.reparameterize(mu, logvar)
             pred_a = model.decode(torch.cat((x_t0, x_t1, x_t2, x_t3), 1), c).data.cpu().numpy()
             pred_a = np.argmax(pred_a)
             print pred_a
@@ -223,7 +245,7 @@ expert = Expert(args.expert_path, 2)
 expert.push()
 
 for epoch in range(1, args.epochs + 1):
-    train(epoch, expert)
+    train(epoch, expert, T)
     #test(epoch)
     #sample = Variable(torch.randn(64, 20))
     #if args.cuda:
