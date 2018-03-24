@@ -9,6 +9,7 @@ from load_expert_traj import Expert
 from grid_world import State, Action, TransitionFunction, RewardFunction, RewardFunction_SR2
 from grid_world import create_obstacles, obstacle_movement, sample_start
 from itertools import product
+from models import Policy, Posterior
 
 parser = argparse.ArgumentParser(description='VAE Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -47,18 +48,12 @@ class VAE(nn.Module):
     def __init__(self):
         super(VAE, self).__init__()
 
-        self.fc1 = nn.Linear(10, 64)
-        self.fc21 = nn.Linear(64, 1)
-        self.fc22 = nn.Linear(64, 1)
-        self.fc3 = nn.Linear(10, 64)
-        self.fc4 = nn.Linear(64, 4)
-
-        self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
+        self.policy = Policy(state_size=8, action_size=0, latent_size=2, output_size=4, hidden_size=64, output_activation='sigmoid')
+        self.posterior = Posterior(state_size=8, action_size=0, latent_size=2, hidden_size=64)
 
     def encode(self, x, c):
-        h1 = self.relu(self.fc1(torch.cat((x, c), 1)))
-        return self.fc21(h1), self.fc22(h1)
+        return self.posterior(torch.cat((x, c), 1))
+
 
     def reparameterize(self, mu, logvar):
         if self.training:
@@ -69,8 +64,8 @@ class VAE(nn.Module):
             return mu
 
     def decode(self, x, c):
-        h3 = self.relu(self.fc3(torch.cat((x, c), 1)))
-        return self.sigmoid(self.fc4(h3))
+        action_mean, action_log_std, action_std = self.policy(torch.cat((x, c), 1))
+        return action_mean
 
     def forward(self, x_t0, x_t1, x_t2, x_t3, c):
         mu, logvar = self.encode(torch.cat((x_t0, x_t1, x_t2, x_t3), 1), c)

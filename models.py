@@ -20,7 +20,7 @@ class Policy(nn.Module):
         self.latent_size = latent_size
         self.output_size = output_size
         self.hidden_size = hidden_size
-        self.activation_flag = activation_flag
+        self.output_activation = output_activation
 
         self.affine1 = nn.Linear(self.input_size, self.hidden_size)
         self.affine2 = nn.Linear(self.hidden_size, self.hidden_size)
@@ -36,9 +36,9 @@ class Policy(nn.Module):
         x = F.relu(self.affine2(x))
 
         action_mean = self.action_mean(x)
-        if output_activation == 'sigmoid':
+        if self.output_activation == 'sigmoid':
             action_mean = F.sigmoid(self.action_mean(x))
-        elif output_activation == 'tanh':
+        elif self.output_activation == 'tanh':
             action_mean = F.tanh(self.action_mean(x))
         action_log_std = self.action_log_std.expand_as(action_mean)
         action_std = torch.exp(action_log_std)
@@ -48,6 +48,7 @@ class Policy(nn.Module):
 class Posterior(nn.Module):
 
     def __init__(self, state_size, action_size, latent_size, hidden_size):
+        super(Posterior, self).__init__()
         
         self.input_size = state_size + action_size + latent_size
         self.state_size = state_size
