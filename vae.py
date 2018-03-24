@@ -58,11 +58,7 @@ class VAE(nn.Module):
 
     def encode(self, x, c):
         h1 = self.relu(self.fc1(torch.cat((x, c), 1)))
-        #logvar = Variable(-4.0*torch.ones(h1.size(0),1))
-        #if args.cuda:
-        #    logvar = logvar.cuda()
         return self.fc21(h1), self.fc22(h1)
-        #return self.fc21(h1), logvar
 
     def reparameterize(self, mu, logvar):
         if self.training:
@@ -75,7 +71,6 @@ class VAE(nn.Module):
     def decode(self, x, c):
         h3 = self.relu(self.fc3(torch.cat((x, c), 1)))
         return self.sigmoid(self.fc4(h3))
-        #return self.fc4(h3)
 
     def forward(self, x_t0, x_t1, x_t2, x_t3, c):
         mu, logvar = self.encode(torch.cat((x_t0, x_t1, x_t2, x_t3), 1), c)
