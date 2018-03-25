@@ -262,6 +262,8 @@ def update_params(gen_batch, expert_batch, i_episode, optim_epochs, optim_batch_
             opt_reward.step()
 
             # update posterior net # We need to do this by reparameterization trick instead.
+            # We should not put action_var (a_t) in the posterior net since we need c_t to 
+            # predict a_t while till now we only have c_{t-1}.
             mu, _ = posterior_net(torch.cat((state_var, action_var, latent_c_var), 1))
             _, latent_c_targets = latent_c_var.max(1)
             latent_c_targets = latent_c_targets.type(dtype)
